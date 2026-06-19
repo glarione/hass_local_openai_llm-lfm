@@ -7,6 +7,7 @@
 - LM Studio
 - Ollama
 - OpenRouter
+- Requesty
 - Scaleway
 - DeepSeek
 
