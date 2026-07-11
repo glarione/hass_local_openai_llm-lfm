@@ -1,4 +1,4 @@
-homeassistant==2026.5.0
+homeassistant
 ruff==0.13.2
 flake8
 flake8-docstrings
