@@ -169,6 +169,11 @@ class LocalAiEntity(Entity):
     """Base entity for Open Router."""
 
     _attr_has_entity_name = True
+    
+    # extra_body key under which chat template kwargs are sent. Most inference
+    # servers read a top-level `chat_template_kwargs`; LocalAI reads them from
+    # `metadata` instead.
+    _chat_template_kwargs_key = "chat_template_kwargs"
 
     def __init__(self, entry: LocalAiConfigEntry, subentry: ConfigSubentry) -> None:
         """Initialize the entity."""
@@ -186,6 +191,11 @@ class LocalAiEntity(Entity):
     def _get_extra_body_args(self, _options: dict) -> dict:
         return {}
 
+    # noinspection PyMethodMayBeStatic
+    def _format_chat_template_kwarg(self, value: Any) -> Any:
+        """Format a rendered chat template kwarg for the target server."""
+        return value
+    
     async def _convert_content_to_chat_message(
         self,
         content: conversation.Content,
@@ -603,11 +613,15 @@ class LocalAiEntity(Entity):
             for keypair in chat_template_args:
                 if keypair["Key"]:
                     # Our value is a template, so that non-string data types and more complex structures can be provided by the user
-                    kwargs[keypair["Key"]] = template.Template(
-                        keypair["Value"],
-                        self.hass,
-                    ).async_render()
-            extra_body_args["chat_template_kwargs"] = kwargs
+                    kwargs[keypair["Key"]] = self._format_chat_template_kwarg(
+                        template.Template(
+                            keypair["Value"],
+                            self.hass,
+                        ).async_render(),
+                    )
+            extra_body_args.setdefault(self._chat_template_kwargs_key, {}).update(
+                kwargs,
+            )
 
         # Pass conversation session ID via metadata for LLM proxy tracing (LiteLLM + Langfuse)
         if (
@@ -616,10 +630,9 @@ class LocalAiEntity(Entity):
             and hasattr(user_input, "conversation_id")
             and user_input.conversation_id
         ):
-            extra_body_args["metadata"] = {
-                "session_id": user_input.conversation_id,
-            }
-
+            extra_body_args.setdefault("metadata", {})["session_id"] = (
+                user_input.conversation_id
+            )
         for key, value in self._get_extra_body_args(options).items():
             if isinstance(value, dict) and isinstance(extra_body_args.get(key), dict):
                 extra_body_args[key] = {**extra_body_args[key], **value}

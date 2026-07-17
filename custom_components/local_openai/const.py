@@ -39,12 +39,14 @@ SERVER_TYPE_GENERIC = "generic"
 SERVER_TYPE_LLAMACPP = "llama_cpp"
 SERVER_TYPE_VLLM = "vllm"
 SERVER_TYPE_DEEPSEEK = "deepseek"
+SERVER_TYPE_LOCALAI = "localai"
 
 SERVER_TYPE_OPTIONS = {
     SERVER_TYPE_GENERIC: "Generic OpenAI-Compatible",
     SERVER_TYPE_LLAMACPP: "llama.cpp",
     # SERVER_TYPE_VLLM: "vLLM",
     SERVER_TYPE_DEEPSEEK: "DeepSeek Cloud",
+    SERVER_TYPE_LOCALAI: "LocalAI"
 }
 
 CONF_AI_TASK_SUPPORTED_ATTRIBUTES = "supported_attributes"

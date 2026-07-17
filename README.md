@@ -10,6 +10,7 @@
 - Requesty
 - Scaleway
 - DeepSeek
+- LocalAI
 
 **This integration has been forked from Home Assistants OpenRouter integration, with the following changes:**
 
@@ -109,6 +110,15 @@ When enabled, thinking content returned by the model is also fed back into the c
 ### llama.cpp Configuration
 
 When the server type is set to *llama.cpp*, both conversation and AI task agents show a **llama.cpp Configuration** section with the following options.
+
+### LocalAI Configuration
+
+When the server type is set to *LocalAI*, Chat Template Arguments are sent via the
+`metadata` request field rather than `chat_template_kwargs`, as this is where LocalAI
+reads chat template variables from. Values are coerced to strings, per LocalAI's
+metadata convention.
+
+See [LocalAI PR #10359](https://github.com/mudler/LocalAI/pull/10359).
 
 #### Enable thinking
 
