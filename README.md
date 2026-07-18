@@ -111,15 +111,6 @@ When enabled, thinking content returned by the model is also fed back into the c
 
 When the server type is set to *llama.cpp*, both conversation and AI task agents show a **llama.cpp Configuration** section with the following options.
 
-### LocalAI Configuration
-
-When the server type is set to *LocalAI*, Chat Template Arguments are sent via the
-`metadata` request field rather than `chat_template_kwargs`, as this is where LocalAI
-reads chat template variables from. Values are coerced to strings, per LocalAI's
-metadata convention.
-
-See [LocalAI PR #10359](https://github.com/mudler/LocalAI/pull/10359).
-
 #### Enable thinking
 
 Passes `enable_thinking=true` via `chat_template_kwargs` to enable reasoning on supported models.
@@ -159,6 +150,17 @@ Please refer to the [llama.cpp documentation](https://github.com/ggml-org/llama.
 | **Top-K**            | Limits sampling to the k highest-probability tokens.                                                       | 1–1000 |
 | **Repeat Penalty**   | Penalizes repeat sequences of tokens.                                                                      | -2–2   |
 | **Presence Penalty** | Penalizes tokens already present in the context.                                                           | -2–2   |
+
+---
+
+### LocalAI Configuration
+
+When the server type is set to *LocalAI*, Chat Template Arguments are sent via the
+OpenAI `metadata` request field rather than a top-level `chat_template_kwargs` field,
+as this is where LocalAI reads chat template variables from. Values are coerced to
+strings, per LocalAI's metadata convention.
+
+See [LocalAI model configuration](https://localai.io/advanced/model-configuration/index.html#custom-chat_template_kwargs).
 
 ---
 

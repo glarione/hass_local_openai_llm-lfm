@@ -8,25 +8,36 @@ from custom_components.local_openai.ai_task import LocalAITaskEntity
 from custom_components.local_openai.conversation import LocalAiConversationEntity
 
 
+def _to_metadata_value(value: Any) -> str:
+    """LocalAI's per-request metadata field is string-only.
+
+    See https://localai.io/advanced/model-configuration/index.html#custom-chat_template_kwargs
+    """
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value)
+
 class LocalAIServerMixin:
-    """Mixin for LocalAI server entities with shared logic.
+    """Mixin for LocalAI entities.
 
     LocalAI does not read a top-level ``chat_template_kwargs`` field the way
     llama.cpp's server does. Chat template variables are supplied via the
     OpenAI ``metadata`` field, with string values.
 
-    See https://github.com/mudler/LocalAI/pull/10359
+    See https://localai.io/advanced/model-configuration/index.html#custom-chat_template_kwargs
     """
 
-    _chat_template_kwargs_key = "metadata"
+    def _get_extra_body_args(self, options: dict) -> dict:
+        """Route chat template kwargs into `metadata` as strings for LocalAI."""
+        extra_body_args = super()._get_extra_body_args(options)
 
-    # noinspection PyMethodMayBeStatic
-    def _format_chat_template_kwarg(self, value: Any) -> Any:
-        """LocalAI expects metadata values as strings."""
-        if isinstance(value, bool):
-            return str(value).lower()
-        return str(value)
+        kwargs = extra_body_args.pop("chat_template_kwargs", None)
+        if kwargs:
+            metadata = extra_body_args.setdefault("metadata", {})
+            for key, value in kwargs.items():
+                metadata[key] = _to_metadata_value(value)
 
+        return extra_body_args
 
 class LocalAIServerConversationEntity(
     LocalAIServerMixin,
