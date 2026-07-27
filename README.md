@@ -10,6 +10,7 @@
 - Requesty
 - Scaleway
 - DeepSeek
+- LocalAI
 
 **This integration has been forked from Home Assistants OpenRouter integration, with the following changes:**
 
@@ -149,6 +150,17 @@ Please refer to the [llama.cpp documentation](https://github.com/ggml-org/llama.
 | **Top-K**            | Limits sampling to the k highest-probability tokens.                                                       | 1–1000 |
 | **Repeat Penalty**   | Penalizes repeat sequences of tokens.                                                                      | -2–2   |
 | **Presence Penalty** | Penalizes tokens already present in the context.                                                           | -2–2   |
+
+---
+
+### LocalAI Configuration
+
+When the server type is set to *LocalAI*, Chat Template Arguments are sent via the
+OpenAI `metadata` request field rather than a top-level `chat_template_kwargs` field,
+as this is where LocalAI reads chat template variables from. Values are coerced to
+strings, per LocalAI's metadata convention.
+
+See [LocalAI model configuration](https://localai.io/advanced/model-configuration/index.html#custom-chat_template_kwargs).
 
 ---
 

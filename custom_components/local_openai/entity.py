@@ -182,9 +182,34 @@ class LocalAiEntity(Entity):
             entry_type=dr.DeviceEntryType.SERVICE,
         )
 
-    # noinspection PyMethodMayBeStatic
-    def _get_extra_body_args(self, _options: dict) -> dict:
-        return {}
+    def _get_extra_body_args(self, options: dict) -> dict:
+        """
+        Build extra_body args for the completion request.
+
+        Chat Template Arguments are sent as a top-level `chat_template_kwargs`
+        field, which most inference servers (llama.cpp, vLLM) read. Server-type
+        subclasses may override this to deliver them elsewhere.
+        """
+        extra_body_args: dict = {}
+
+        chat_template_opts = options.get(CONF_CHAT_TEMPLATE_OPTS, {})
+        chat_template_args = chat_template_opts.get(CONF_CHAT_TEMPLATE_KWARGS, [])
+        chat_template_args = [
+            keypair for keypair in chat_template_args if keypair["Key"].strip()
+        ]
+
+        if chat_template_args:
+            kwargs = {}
+            for keypair in chat_template_args:
+                if keypair["Key"]:
+                    # Value is a template, so non-string types and structures can be provided
+                    kwargs[keypair["Key"]] = template.Template(
+                        keypair["Value"],
+                        self.hass,
+                    ).async_render()
+            extra_body_args["chat_template_kwargs"] = kwargs
+
+        return extra_body_args
 
     async def _convert_content_to_chat_message(
         self,
@@ -585,30 +610,7 @@ class LocalAiEntity(Entity):
 
         if tools:
             model_args["tools"] = tools
-
-        chat_template_opts = options.get(CONF_CHAT_TEMPLATE_OPTS, {})
-        chat_template_args = chat_template_opts.get(CONF_CHAT_TEMPLATE_KWARGS, [])
-
-        # Filter args without a name - they are marked as required in the schema but this isn't being enforced on the front-end
-        chat_template_args = [
-            keypair for keypair in chat_template_args if keypair["Key"].strip()
-        ]
-
-        # Additional args to be passed into extra_body:
-        # - chat_template_kwargs is supported in multiple inference servers, args depend on model support
-        # - metadata.session_id is supported by LiteLLM for observability & tracing in langfuse
-        extra_body_args = {}
-        if chat_template_args:
-            kwargs = {}
-            for keypair in chat_template_args:
-                if keypair["Key"]:
-                    # Our value is a template, so that non-string data types and more complex structures can be provided by the user
-                    kwargs[keypair["Key"]] = template.Template(
-                        keypair["Value"],
-                        self.hass,
-                    ).async_render()
-            extra_body_args["chat_template_kwargs"] = kwargs
-
+        extra_body_args = self._get_extra_body_args(options)
         # Pass conversation session ID via metadata for LLM proxy tracing (LiteLLM + Langfuse)
         if (
             pass_session_id
@@ -616,15 +618,9 @@ class LocalAiEntity(Entity):
             and hasattr(user_input, "conversation_id")
             and user_input.conversation_id
         ):
-            extra_body_args["metadata"] = {
-                "session_id": user_input.conversation_id,
-            }
-
-        for key, value in self._get_extra_body_args(options).items():
-            if isinstance(value, dict) and isinstance(extra_body_args.get(key), dict):
-                extra_body_args[key] = {**extra_body_args[key], **value}
-            else:
-                extra_body_args[key] = value
+            extra_body_args.setdefault("metadata", {})["session_id"] = (
+                user_input.conversation_id
+            )
 
         # Insert our extra_body args if we have any
         if extra_body_args:
