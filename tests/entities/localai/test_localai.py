@@ -13,12 +13,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from types import MappingProxyType
 
 from custom_components.local_openai.ai_task import LocalAITaskEntity
-from custom_components.local_openai.const import CONF_CHAT_TEMPLATE_KWARGS, CONF_CHAT_TEMPLATE_OPTS
+from custom_components.local_openai.const import (
+    CONF_CHAT_TEMPLATE_KWARGS,
+    CONF_CHAT_TEMPLATE_OPTS,
+)
 from custom_components.local_openai.conversation import LocalAiConversationEntity
 from custom_components.local_openai.entities.localai import (
     LocalAIServerAITaskEntity,
     LocalAIServerConversationEntity,
-    LocalAIServerMixin,
     _to_metadata_value,
 )
 
@@ -51,7 +53,9 @@ class TestLocalAIServerMixinExtraBodyArgs:
     """Tests for LocalAIServerMixin._get_extra_body_args."""
 
     def _make_entity(
-        self, hass: HomeAssistant, subentry_data: dict,
+        self,
+        hass: HomeAssistant,
+        subentry_data: dict,
     ) -> LocalAIServerConversationEntity:
         entry = MockConfigEntry(
             domain="local_openai",
@@ -92,7 +96,14 @@ class TestLocalAIServerMixinExtraBodyArgs:
         )
         result = entity._get_extra_body_args(
             MappingProxyType(
-                {CONF_CHAT_TEMPLATE_OPTS: {"chat_template_kwargs": [{"Key": "enable_thinking", "Value": "true"}]}}),
+                {
+                    CONF_CHAT_TEMPLATE_OPTS: {
+                        "chat_template_kwargs": [
+                            {"Key": "enable_thinking", "Value": "true"}
+                        ]
+                    }
+                }
+            ),
         )
         assert "metadata" in result
         assert result["metadata"]["enable_thinking"] == "true"
@@ -106,7 +117,9 @@ class TestLocalAIServerMixinExtraBodyArgs:
         ],
     )
     def test_no_kwargs_no_metadata(
-        self, hass: HomeAssistant, options: MappingProxyType,
+        self,
+        hass: HomeAssistant,
+        options: MappingProxyType,
     ):
         """Test that absent chat_template_kwargs does not create metadata."""
         entity = self._make_entity(
@@ -125,7 +138,9 @@ class TestLocalAIServerMixinExtraBodyArgs:
         with patch.object(
             LocalAiConversationEntity,
             "_get_extra_body_args",
-            return_value={"chat_template_kwargs": {"enable_thinking": True, "disabled": False}},
+            return_value={
+                "chat_template_kwargs": {"enable_thinking": True, "disabled": False}
+            },
         ):
             result = entity._get_extra_body_args(MappingProxyType({}))
         assert result["metadata"]["enable_thinking"] == "true"
