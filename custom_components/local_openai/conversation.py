@@ -46,6 +46,7 @@ def _get_conversation_entity(
         LocalAiConversationEntity,
     )
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: LocalAiConfigEntry,

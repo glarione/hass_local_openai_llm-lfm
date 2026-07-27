@@ -46,7 +46,7 @@ SERVER_TYPE_OPTIONS = {
     SERVER_TYPE_LLAMACPP: "llama.cpp",
     # SERVER_TYPE_VLLM: "vLLM",
     SERVER_TYPE_DEEPSEEK: "DeepSeek Cloud",
-    SERVER_TYPE_LOCALAI: "LocalAI"
+    SERVER_TYPE_LOCALAI: "LocalAI",
 }
 
 CONF_AI_TASK_SUPPORTED_ATTRIBUTES = "supported_attributes"

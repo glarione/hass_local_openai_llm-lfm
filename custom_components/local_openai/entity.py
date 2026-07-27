@@ -169,6 +169,7 @@ class LocalAiEntity(Entity):
     """Base entity for Open Router."""
 
     _attr_has_entity_name = True
+
     def __init__(self, entry: LocalAiConfigEntry, subentry: ConfigSubentry) -> None:
         """Initialize the entity."""
         self.entry = entry
@@ -182,7 +183,8 @@ class LocalAiEntity(Entity):
         )
 
     def _get_extra_body_args(self, options: dict) -> dict:
-        """Build extra_body args for the completion request.
+        """
+        Build extra_body args for the completion request.
 
         Chat Template Arguments are sent as a top-level `chat_template_kwargs`
         field, which most inference servers (llama.cpp, vLLM) read. Server-type

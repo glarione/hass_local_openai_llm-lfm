@@ -9,7 +9,8 @@ from custom_components.local_openai.conversation import LocalAiConversationEntit
 
 
 def _to_metadata_value(value: Any) -> str:
-    """LocalAI's per-request metadata field is string-only.
+    """
+    LocalAI's per-request metadata field is string-only.
 
     See https://localai.io/advanced/model-configuration/index.html#custom-chat_template_kwargs
     """
@@ -17,8 +18,10 @@ def _to_metadata_value(value: Any) -> str:
         return str(value).lower()
     return str(value)
 
+
 class LocalAIServerMixin:
-    """Mixin for LocalAI entities.
+    """
+    Mixin for LocalAI entities.
 
     LocalAI does not read a top-level ``chat_template_kwargs`` field the way
     llama.cpp's server does. Chat template variables are supplied via the
@@ -38,6 +41,7 @@ class LocalAIServerMixin:
                 metadata[key] = _to_metadata_value(value)
 
         return extra_body_args
+
 
 class LocalAIServerConversationEntity(
     LocalAIServerMixin,

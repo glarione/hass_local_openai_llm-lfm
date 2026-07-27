@@ -16,6 +16,7 @@ ignore = [
     "ARG001",  # Unused argument
     "ANN401",  # Dynamically typed expressions (typing.Any) are disallowed
     "COM812",  # Incompatible with formatter
+    "EXE002",  # The file is executable but no shebang is present
 ]
 
 [lint.flake8-pytest-style]
