@@ -6,7 +6,7 @@
         "data": {
           "server_name": "Server Name",
           "base_url": "Server URL",
-           "api_key": "API key",
+          "api_key": "API key",
           "server_type": "Server Type"
         },
         "data_description": {
