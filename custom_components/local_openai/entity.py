@@ -687,9 +687,18 @@ class LocalAiEntity(Entity):
         )
         model_args["messages"] = messages
 
-        if tools:
-            model_args["tools"] = tools
+        # Get base extra_body args first
         extra_body_args = self._get_extra_body_args(options)
+
+        # For LFM models, pass tools via chat_template_kwargs instead of tools array
+        # LFM models expect tools to be embedded in the chat template
+        if tools:
+            if enable_lfm_tool_calling:
+                # Add tools to chat_template_kwargs for LFM models
+                extra_body_args.setdefault("chat_template_kwargs", {})["tools"] = tools
+            else:
+                # Standard OpenAI-style tool calling
+                model_args["tools"] = tools
         # Pass conversation session ID via metadata for LLM proxy tracing (LiteLLM + Langfuse)
         if (
             pass_session_id
