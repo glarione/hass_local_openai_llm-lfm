@@ -2,8 +2,16 @@
 
 import logging
 
-from homeassistant.components import ai_task
-from homeassistant.const import CONF_LLM_HASS_API, CONF_PROMPT
+try:
+    from homeassistant.components import ai_task
+except ImportError:
+    ai_task = None
+
+from homeassistant.const import CONF_LLM_HASS_API
+try:
+    from homeassistant.const import CONF_PROMPT
+except ImportError:
+    CONF_PROMPT = "prompt"
 from homeassistant.helpers import llm
 
 DOMAIN = "local_openai"
@@ -57,11 +65,11 @@ SERVER_TYPE_OPTIONS = {
 
 CONF_AI_TASK_SUPPORTED_ATTRIBUTES = "supported_attributes"
 CONF_AI_TASK_SUPPORTED_ATTRIBUTE_OPTIONS = {
-    "generate_data": ai_task.AITaskEntityFeature.GENERATE_DATA
-    | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS,
-    "generate_image": ai_task.AITaskEntityFeature.GENERATE_IMAGE
-    | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS,
-}
+    "generate_data": getattr(ai_task.AITaskEntityFeature, "GENERATE_DATA", 1)
+    | getattr(ai_task.AITaskEntityFeature, "SUPPORT_ATTACHMENTS", 2),
+    "generate_image": getattr(ai_task.AITaskEntityFeature, "GENERATE_IMAGE", 4)
+    | getattr(ai_task.AITaskEntityFeature, "SUPPORT_ATTACHMENTS", 2),
+} if ai_task else {}
 
 CONF_AI_TASK_TOOLS_SECTION = "tooling"
 

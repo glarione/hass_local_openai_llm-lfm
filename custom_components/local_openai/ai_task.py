@@ -10,12 +10,21 @@ from json import JSONDecodeError
 from typing import TYPE_CHECKING
 
 import openai
-from homeassistant.components import ai_task, conversation
+try:
+    from homeassistant.components import ai_task
+except ImportError:
+    ai_task = None
+
+from homeassistant.components import conversation
 from homeassistant.components.conversation import SystemContent
 from homeassistant.const import CONF_LLM_HASS_API
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
-from homeassistant.helpers.llm import async_get_api, selector_serializer
+from homeassistant.helpers.llm import async_get_api
+try:
+    from homeassistant.helpers.llm import selector_serializer
+except ImportError:
+    selector_serializer = None
 from homeassistant.util.json import json_loads
 from PIL import Image
 
@@ -83,37 +92,46 @@ async def async_setup_entry(
         )
 
 
-class LocalAITaskEntity(
-    ai_task.AITaskEntity,
-    LocalAiEntity,
-):
-    """Local OpenAI LLM AI Task entity."""
+if ai_task:
+    class LocalAITaskEntity(ai_task.AITaskEntity, LocalAiEntity):
+        """Local OpenAI LLM AI Task entity."""
 
-    _attr_name = None
-    _attr_supported_features = (
-        ai_task.AITaskEntityFeature.GENERATE_DATA
-        | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
-        | ai_task.AITaskEntityFeature.GENERATE_IMAGE
-    )
-
-    def __init__(
-        self,
-        config_entry: LocalAiConfigEntry,
-        subentry: ConfigSubentry,
-    ) -> None:
-        """Initialize the AI Task entity."""
-        ai_task.AITaskEntity.__init__(self)
-        LocalAiEntity.__init__(self, config_entry, subentry)
-
-        supported_attributes = self.subentry.data.get(
-            CONF_AI_TASK_SUPPORTED_ATTRIBUTES,
-            ["generate_data"],
+        _attr_name = None
+        _attr_supported_features = (
+            getattr(getattr(ai_task, "AITaskEntityFeature", None), "GENERATE_DATA", 1)
+            | getattr(getattr(ai_task, "AITaskEntityFeature", None), "SUPPORT_ATTACHMENTS", 2)
+            | getattr(getattr(ai_task, "AITaskEntityFeature", None), "GENERATE_IMAGE", 4)
         )
-        attributes = 0
-        for attr in supported_attributes:
-            attributes |= CONF_AI_TASK_SUPPORTED_ATTRIBUTE_OPTIONS[attr]
 
-        self._attr_supported_features = attributes
+        def __init__(
+            self,
+            config_entry: LocalAiConfigEntry,
+            subentry: ConfigSubentry,
+        ) -> None:
+            """Initialize the AI Task entity."""
+            ai_task.AITaskEntity.__init__(self)
+            LocalAiEntity.__init__(self, config_entry, subentry)
+else:
+    class LocalAITaskEntity(LocalAiEntity):
+        """Fallback AI Task entity when ai_task component is not installed."""
+
+        def __init__(
+            self,
+            config_entry: LocalAiConfigEntry,
+            subentry: ConfigSubentry,
+        ) -> None:
+            """Initialize the AI Task entity."""
+            LocalAiEntity.__init__(self, config_entry, subentry)
+
+            supported_attributes = self.subentry.data.get(
+                CONF_AI_TASK_SUPPORTED_ATTRIBUTES,
+                ["generate_data"],
+            )
+            attributes = 0
+            for attr in supported_attributes:
+                attributes |= CONF_AI_TASK_SUPPORTED_ATTRIBUTE_OPTIONS.get(attr, 0)
+
+            self._attr_supported_features = attributes
 
     async def _async_generate_data(
         self,

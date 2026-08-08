@@ -27,7 +27,9 @@ from .const import (
     PLACEHOLDER_API_KEY,
 )
 
-PLATFORMS = [Platform.AI_TASK, Platform.CONVERSATION]
+PLATFORMS = [
+    p for p in (getattr(Platform, "AI_TASK", None), Platform.CONVERSATION) if p is not None
+]
 
 type LocalAiConfigEntry = ConfigEntry[AsyncOpenAI]
 

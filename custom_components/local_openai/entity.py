@@ -39,7 +39,6 @@ from .const import (
     CONF_CONTENT_INJECTION_METHOD_ASSISTANT,
     CONF_CONTENT_INJECTION_METHOD_TOOL,
     CONF_CONTENT_INJECTION_METHOD_USER,
-    CONF_ENABLE_LFM_TOOL_CALLING,
     CONF_MAX_MESSAGE_HISTORY,
     CONF_PASS_SESSION_ID,
     CONF_SERVER_OPTIONS,
@@ -432,32 +431,8 @@ class LocalAiEntity(Entity):
         self,
         stream: AsyncStream[ChatCompletionChunk],
         strip_emojis: bool,
-        enable_lfm_tool_calling: bool = False,
-        allowed_tools: set[str] | None = None,
     ) -> AsyncGenerator[conversation.AssistantContentDeltaDict, None]:
         """Transform a streaming response to ChatLog format."""
-        # Delegate to LFM parser if LFM tool calling is enabled
-        if enable_lfm_tool_calling:
-            # Import here to avoid circular imports
-            from .entities.lfm import LfmMixin  # noqa: PLC0415
-
-            # Create a temporary mixin instance to use its method
-            mixin = LfmMixin.__new__(LfmMixin)
-            mixin.entry = self.entry
-            mixin.subentry = self.subentry
-            mixin.model = self.model
-            mixin._attr_unique_id = self._attr_unique_id
-            mixin._attr_device_info = self._attr_device_info
-            mixin.hass = self.hass
-            mixin.extra_state_attributes = {}
-
-            async for chunk in mixin._transform_lfm_stream(
-                stream, strip_emojis, allowed_tools
-            ):
-                yield chunk
-            return
-
-        # Standard OpenAI-style tool calling
         new_msg = True
         pending_think = ""
         in_think = False
@@ -641,9 +616,6 @@ class LocalAiEntity(Entity):
         server_options = self.server_options
         strip_emojis = options.get(CONF_STRIP_EMOJIS)
 
-        # LFM tool calling options
-        enable_lfm_tool_calling = options.get(CONF_ENABLE_LFM_TOOL_CALLING, False)
-
         # Pass conversation session ID via metadata for LLM proxy tracing (LiteLLM + Langfuse)
         pass_session_id = server_options.get(CONF_PASS_SESSION_ID, False)
         max_message_history = int(options.get(CONF_MAX_MESSAGE_HISTORY, 0))
@@ -660,14 +632,11 @@ class LocalAiEntity(Entity):
         }
 
         tools: list[ChatCompletionFunctionToolParam] | None = None
-        allowed_tools: set[str] | None = None
         if chat_log.llm_api:
             tools = [
                 _format_tool(tool, chat_log.llm_api.custom_serializer)
                 for tool in chat_log.llm_api.tools
             ]
-            # Extract allowed tool names for LFM validation
-            allowed_tools = {tool.name for tool in chat_log.llm_api.tools}
 
         messages = self._trim_history(
             [
@@ -689,16 +658,10 @@ class LocalAiEntity(Entity):
 
         # Get base extra_body args first
         extra_body_args = self._get_extra_body_args(options)
-
-        # For LFM models, pass tools via chat_template_kwargs instead of tools array
-        # LFM models expect tools to be embedded in the chat template
+        
         if tools:
-            if enable_lfm_tool_calling:
-                # Add tools to chat_template_kwargs for LFM models
-                extra_body_args.setdefault("chat_template_kwargs", {})["tools"] = tools
-            else:
-                # Standard OpenAI-style tool calling
-                model_args["tools"] = tools
+            model_args["tools"] = tools
+
         # Pass conversation session ID via metadata for LLM proxy tracing (LiteLLM + Langfuse)
         if (
             pass_session_id
@@ -727,6 +690,8 @@ class LocalAiEntity(Entity):
                 ),
             )
 
+        self._customize_model_args(model_args, tools, chat_log)
+
         client = self.entry.runtime_data
 
         await self._run_agent_loop(
@@ -734,9 +699,15 @@ class LocalAiEntity(Entity):
             model_args,
             chat_log,
             strip_emojis,
-            enable_lfm_tool_calling,
-            allowed_tools,
         )
+
+    def _customize_model_args(
+        self,
+        model_args: dict[str, Any],
+        tools: list[ChatCompletionFunctionToolParam] | None,
+        chat_log: conversation.ChatLog,
+    ) -> None:
+        """Hook for server-specific entities to customize model_args before execution."""
 
     async def _run_agent_loop(
         self,
@@ -744,8 +715,6 @@ class LocalAiEntity(Entity):
         model_args: dict[str, Any],
         chat_log: conversation.ChatLog,
         strip_emojis: bool,
-        enable_lfm_tool_calling: bool = False,
-        allowed_tools: set[str] | None = None,
     ) -> None:
         """Run the LLM agent loop with tool call iteration."""
         for iteration in range(MAX_TOOL_ITERATIONS):
@@ -770,8 +739,6 @@ class LocalAiEntity(Entity):
                             self._transform_stream(
                                 stream=result_stream,
                                 strip_emojis=strip_emojis,
-                                enable_lfm_tool_calling=enable_lfm_tool_calling,
-                                allowed_tools=allowed_tools,
                             ),
                         )
                         if (msg := await self._convert_content_to_chat_message(content))

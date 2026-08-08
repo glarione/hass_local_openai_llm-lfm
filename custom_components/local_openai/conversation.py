@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from homeassistant.components import conversation
-from homeassistant.const import CONF_LLM_HASS_API, CONF_PROMPT, MATCH_ALL
+from homeassistant.const import CONF_LLM_HASS_API, MATCH_ALL
+try:
+    from homeassistant.const import CONF_PROMPT
+except ImportError:
+    CONF_PROMPT = "prompt"
 from homeassistant.helpers import llm
 
 from .const import (

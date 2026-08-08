@@ -3,125 +3,163 @@
 from __future__ import annotations
 
 import ast
+import json
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.components import conversation
 from homeassistant.helpers import llm
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessageParam,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-
+    from openai.types.chat import ChatCompletionChunk, ChatCompletionFunctionToolParam
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _parse_python_function_call(call_str: str, allowed_tools: set[str]) -> dict | None:
+def _parse_lfm_tool_calls(
+    content: str, allowed_tools: set[str] | None = None
+) -> list[dict]:
     """
-    Parse a Python function call string into name and args.
+    Parse LFM-style tool calls from content string using Python AST.
 
-    SECURITY: Only allows functions in the allowed_tools set.
-
-    Input: 'get_candidate_status(candidate_id="12345")'
-    Output: {"name": "get_candidate_status", "args": {"candidate_id": "12345"}} or None if not allowed
+    Input examples:
+    - "[GetLiveContext()]"
+    - "[HassTurnOn(name='TV LED', area='Living Room')]"
+    - "[func1(arg1='val'), func2(arg2=123)]"
     """
-    try:
-        tree = ast.parse(call_str, mode="eval")
-
-        if isinstance(tree.body, ast.Call):
-            call = tree.body
-            func_name = call.func.id if isinstance(call.func, ast.Name) else None
-
-            # SECURITY CHECK: Validate function name against allowed tools
-            if not func_name or func_name not in allowed_tools:
-                _LOGGER.warning(
-                    "Attempted to call unknown function: %s (allowed: %s)",
-                    func_name,
-                    allowed_tools,
-                )
-                return None
-
-            kwargs = {}
-            for keyword in call.keywords:
-                if keyword.arg:
-                    try:
-                        kwargs[keyword.arg] = ast.literal_eval(keyword.value)
-                    except (ValueError, SyntaxError):
-                        _LOGGER.warning(
-                            "Invalid argument value for %s.%s", func_name, keyword.arg
-                        )
-                        return None
-
-            return {"name": func_name, "args": kwargs}
-
-        _LOGGER.warning("Unexpected AST node type: %s", type(tree.body))
-        return None
-
-    except Exception as e:
-        _LOGGER.error("Failed to parse LFM tool call '%s': %s", call_str, e)
-        return None
-
-
-def _parse_lfm_tool_calls(content: str, allowed_tools: set[str]) -> list[dict]:
-    """
-    Parse LFM-style tool calls from content.
-
-    Input: "[get_candidate_status(candidate_id="12345")]"
-    Output: [{"name": "get_candidate_status", "args": {"candidate_id": "12345"}}]
-    """
-    # Extract content between square brackets
-    match = re.search(r"\[(.+)\]", content)
-    if not match:
+    if not content:
         return []
 
-    tool_call_str = match.group(1).strip()
+    # Extract content inside brackets if enclosed in []
+    match = re.search(r"\[(.*)\]", content, re.DOTALL)
+    expr_str = f"[{match.group(1).strip()}]" if match else content.strip()
 
-    # Try parsing as single call first
-    parsed = _parse_python_function_call(tool_call_str, allowed_tools)
-    if parsed:
-        return [parsed]
+    try:
+        tree = ast.parse(expr_str, mode="eval")
+    except Exception as err:
+        _LOGGER.warning(
+            "Failed to parse LFM tool call expression '%s': %s", expr_str, err
+        )
+        return []
 
-    # Try parsing multiple calls
-    # Split on '), ' but be careful with nested structures
-    parts = re.split(r"\),\s*", tool_call_str)
-    tool_calls = []
+    nodes: list[ast.AST] = []
+    if isinstance(tree.body, ast.List):
+        nodes = list(tree.body.elts)
+    elif isinstance(tree.body, ast.Call):
+        nodes = [tree.body]
 
-    for part in parts:
-        # Restore the closing parenthesis
-        call = part.strip()
-        if not call.endswith(")"):
-            call += ")"
+    calls: list[dict] = []
+    for node in nodes:
+        if not isinstance(node, ast.Call):
+            continue
 
-        parsed = _parse_python_function_call(call, allowed_tools)
-        if parsed:
-            tool_calls.append(parsed)
+        func_name = node.func.id if isinstance(node.func, ast.Name) else None
+        if not func_name:
+            continue
 
-    return tool_calls
+        if allowed_tools is not None and func_name not in allowed_tools:
+            _LOGGER.warning(
+                "Attempted to call unknown function: %s (allowed: %s)",
+                func_name,
+                allowed_tools,
+            )
+            continue
+
+        kwargs: dict[str, Any] = {}
+        for keyword in node.keywords:
+            if keyword.arg:
+                try:
+                    kwargs[keyword.arg] = ast.literal_eval(keyword.value)
+                except Exception:
+                    kwargs[keyword.arg] = str(keyword.value)
+
+        calls.append({"name": func_name, "args": kwargs})
+
+    return calls
+
+
+def _format_lfm_tool_call_string(tool_calls: list[llm.ToolInput]) -> str:
+    """Format list of ToolInput into LFM tool call text representation."""
+    calls_str = []
+    for call in tool_calls:
+        args_formatted = []
+        for k, v in call.tool_args.items():
+            args_formatted.append(f"{k}={repr(v)}")
+        calls_str.append(f"{call.tool_name}({', '.join(args_formatted)})")
+    return f"<|tool_call_start|>[{', '.join(calls_str)}]<|tool_call_end|>"
 
 
 class LfmMixin:
     """Mixin for LFM tool calling support."""
 
-    async def _transform_lfm_stream(
+    def _customize_model_args(
         self,
-        stream,
+        model_args: dict[str, Any],
+        tools: list[ChatCompletionFunctionToolParam] | None,
+        chat_log: conversation.ChatLog,
+    ) -> None:
+        """Customize model_args specifically for LFM model tool calling."""
+        if not tools:
+            return
+
+        # 1. Remove top-level tools and tool_choice from model_args to prevent server-side JSON schema parsing
+        model_args.pop("tools", None)
+        model_args.pop("tool_choice", None)
+
+        # 2. Add tools to extra_body["chat_template_kwargs"]["tools"]
+        extra_body = model_args.setdefault("extra_body", {})
+        chat_template_kwargs = extra_body.setdefault("chat_template_kwargs", {})
+        chat_template_kwargs["tools"] = tools
+
+        # 3. Instruct backend servers (llama.cpp/vLLM) not to perform server-side tool calling
+        extra_body["function_call"] = "none"
+
+        # 4. Inject tool definitions into system message if messages are present
+        messages = model_args.get("messages", [])
+        tools_json = [tool["function"] for tool in tools if "function" in tool]
+        tools_prompt = f"\n\nList of tools: {json.dumps(tools_json)}"
+
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] += tools_prompt
+        elif messages:
+            messages.insert(
+                0, {"role": "system", "content": f"List of tools: {json.dumps(tools_json)}"}
+            )
+
+    async def _convert_content_to_chat_message(
+        self,
+        content: conversation.Content,
+    ) -> ChatCompletionMessageParam | None:
+        """Convert content to OpenAI Chat message, converting Assistant tool calls to LFM text representation."""
+        if isinstance(content, conversation.AssistantContent) and content.tool_calls:
+            lfm_tool_str = _format_lfm_tool_call_string(content.tool_calls)
+            text_content = content.content or ""
+            full_content = (
+                f"{lfm_tool_str} {text_content}".strip()
+                if text_content
+                else lfm_tool_str
+            )
+            return ChatCompletionAssistantMessageParam(
+                role="assistant",
+                content=full_content,
+            )
+
+        return await super()._convert_content_to_chat_message(content)
+
+    async def _transform_stream(
+        self,
+        stream: AsyncStream[ChatCompletionChunk],
         strip_emojis: bool,
-        allowed_tools: set[str] | None = None,
-    ) -> AsyncGenerator[dict, None]:
-        """
-        Transform LFM streaming response, detecting and parsing tool calls.
-
-        Args:
-            stream: AsyncStream[ChatCompletionChunk]
-            strip_emojis: Whether to strip emojis
-            allowed_tools: Set of allowed tool names (from chat_log.llm_api.tools)
-
-        """
+    ) -> AsyncGenerator[conversation.AssistantContentDeltaDict, None]:
+        """Transform LFM streaming response, detecting and parsing tool calls."""
         import asyncio
-
         import demoji
-
-        # Import here to avoid circular imports
         from custom_components.local_openai.entity import _SUPPORTS_THINKING
 
         new_msg = True
@@ -130,12 +168,11 @@ class LfmMixin:
         seen_visible = False
         loop = asyncio.get_running_loop()
 
-        # LFM-specific state
         pending_lfm_tool_content = ""
         in_lfm_tool_call = False
 
         async for event in stream:
-            chunk: dict = {}
+            chunk: conversation.AssistantContentDeltaDict = {}
 
             if not event.choices:
                 continue
@@ -143,7 +180,6 @@ class LfmMixin:
             choice = event.choices[0]
             delta = choice.delta
 
-            # Handle role
             if new_msg:
                 chunk["role"] = delta.role or "assistant"
                 new_msg = False
@@ -168,48 +204,36 @@ class LfmMixin:
                 # Check for LFM tool call start token
                 if "<|tool_call_start|>" in content:
                     in_lfm_tool_call = True
-                    # Extract content after the start token
-                    parts = content.split("<|tool_call_start|>")
-                    if len(parts) > 1:
-                        content = parts[1]
-                    else:
-                        content = ""
+                    parts = content.split("<|tool_call_start|>", 1)
+                    content = parts[1] if len(parts) > 1 else ""
 
                 # Check for LFM tool call end token
                 if "<|tool_call_end|>" in content:
                     in_lfm_tool_call = False
-                    # Extract content before the end token
-                    parts = content.split("<|tool_call_end|>")
+                    parts = content.split("<|tool_call_end|>", 1)
                     pending_lfm_tool_content += parts[0]
 
-                    # Parse the tool call
-                    if allowed_tools:
-                        tool_calls = _parse_lfm_tool_calls(
-                            pending_lfm_tool_content, allowed_tools
-                        )
-                        if tool_calls:
-                            chunk["tool_calls"] = [
-                                llm.ToolInput(
-                                    id=f"call_{i}",
-                                    tool_name=tc["name"],
-                                    tool_args=tc["args"],
-                                )
-                                for i, tc in enumerate(tool_calls)
-                            ]
+                    # Parse tool call
+                    tool_calls_data = _parse_lfm_tool_calls(
+                        pending_lfm_tool_content, None
+                    )
+                    if tool_calls_data:
+                        chunk["tool_calls"] = [
+                            llm.ToolInput(
+                                id=f"call_{i}",
+                                tool_name=tc["name"],
+                                tool_args=tc["args"],
+                            )
+                            for i, tc in enumerate(tool_calls_data)
+                        ]
                     pending_lfm_tool_content = ""
+                    content = parts[1] if len(parts) > 1 else ""
 
-                    # Check if there's content after the end token
-                    if len(parts) > 1:
-                        content = parts[1]
-                    else:
-                        content = ""
-
-                # Accumulate tool call content (don't yield it as text)
                 if in_lfm_tool_call:
                     pending_lfm_tool_content += content
-                    continue
+                    content = ""
 
-                # Handle thinking tags
+                # Handle think tags
                 if "<think>" in content:
                     in_think = True
                     content = content.replace("<think>", "")
@@ -237,10 +261,9 @@ class LfmMixin:
                 if not in_think and content.strip():
                     seen_visible = True
 
-                if seen_visible:
+                if seen_visible and content:
                     chunk["content"] = content
 
-            # Handle finish reason
             if choice.finish_reason:
                 try:
                     if event.timings:
@@ -248,22 +271,18 @@ class LfmMixin:
                 except Exception:
                     pass
 
-            if seen_visible or chunk.get("tool_calls") or chunk.get("role"):
+            if (
+                seen_visible
+                or chunk.get("tool_calls")
+                or chunk.get("role")
+                or chunk.get("thinking_content")
+            ):
                 yield chunk
 
 
 def get_conversation_config_schema() -> dict:
     """Return conversation config schema for LFM."""
-    import voluptuous as vol
-
-    from custom_components.local_openai.const import CONF_ENABLE_LFM_TOOL_CALLING
-
-    return {
-        vol.Required(
-            CONF_ENABLE_LFM_TOOL_CALLING,
-            default=False,
-        ): bool,
-    }
+    return {}
 
 
 def get_ai_task_config_schema() -> dict:
@@ -271,7 +290,7 @@ def get_ai_task_config_schema() -> dict:
     return get_conversation_config_schema()
 
 
-# Import these at the bottom to avoid circular imports
+# Import these at bottom to avoid circular imports
 from custom_components.local_openai.ai_task import LocalAITaskEntity  # noqa: E402
 from custom_components.local_openai.conversation import (
     LocalAiConversationEntity,
