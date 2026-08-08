@@ -28,6 +28,7 @@ from .const import (
     CONF_SERVER_TYPE,
     SERVER_TYPE_DEEPSEEK,
     SERVER_TYPE_GENERIC,
+    SERVER_TYPE_LFM,
     SERVER_TYPE_LLAMACPP,
     SERVER_TYPE_LOCALAI,
     SERVER_TYPE_VLLM,
@@ -47,12 +48,14 @@ def _get_ai_task_entity(
 ) -> type[LocalAITaskEntity]:
     if getattr(_get_ai_task_entity, "entity_map", None) is None:
         from .entities.deepseek import DeepSeekAITaskEntity  # noqa: PLC0415
+        from .entities.lfm import LfmAITaskEntity  # noqa: PLC0415
         from .entities.llama_cpp import LlamaCppAITaskEntity  # noqa: PLC0415
         from .entities.localai import LocalAIServerAITaskEntity  # noqa: PLC0415
         from .entities.vllm import VllmAITaskEntity  # noqa: PLC0415
 
         _get_ai_task_entity.entity_map = {
             SERVER_TYPE_DEEPSEEK: DeepSeekAITaskEntity,
+            SERVER_TYPE_LFM: LfmAITaskEntity,
             SERVER_TYPE_LLAMACPP: LlamaCppAITaskEntity,
             SERVER_TYPE_LOCALAI: LocalAIServerAITaskEntity,
             SERVER_TYPE_VLLM: VllmAITaskEntity,

@@ -23,6 +23,7 @@ CONF_CHAT_TEMPLATE_KWARGS = "chat_template_kwargs"
 CONF_PASS_SESSION_ID = "pass_session_id"  # noqa: S105
 CONF_SERVER_OPTIONS = "server_options"
 CONF_SERVER_TYPE = "server_type"
+CONF_ENABLE_LFM_TOOL_CALLING = "enable_lfm_tool_calling"
 CONF_GENERIC_CONFIG = "generic_config"
 CONF_LLAMACPP_CONFIG = "llamacpp_config"
 CONF_LLAMACPP_ENABLE_THINKING = "llamacpp_enable_thinking"
@@ -43,6 +44,7 @@ SERVER_TYPE_LLAMACPP = "llama_cpp"
 SERVER_TYPE_VLLM = "vllm"
 SERVER_TYPE_DEEPSEEK = "deepseek"
 SERVER_TYPE_LOCALAI = "localai"
+SERVER_TYPE_LFM = "lfm"
 
 SERVER_TYPE_OPTIONS = {
     SERVER_TYPE_GENERIC: "Generic OpenAI-Compatible",
@@ -50,6 +52,7 @@ SERVER_TYPE_OPTIONS = {
     SERVER_TYPE_VLLM: "vLLM",
     SERVER_TYPE_DEEPSEEK: "DeepSeek Cloud",
     SERVER_TYPE_LOCALAI: "LocalAI",
+    SERVER_TYPE_LFM: "LFM",
 }
 
 CONF_AI_TASK_SUPPORTED_ATTRIBUTES = "supported_attributes"
