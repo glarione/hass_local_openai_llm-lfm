@@ -26,12 +26,14 @@ from custom_components.local_openai.config_flow import (
 )
 from custom_components.local_openai.const import (
     CONF_CHAT_TEMPLATE_KWARGS,
+    CONF_CUSTOM_HEADERS,
     CONF_DEEPSEEK_CONFIG,
     CONF_GENERIC_CONFIG,
     CONF_LLAMACPP_CONFIG,
     CONF_LOCALAI_CONFIG,
     CONF_REQUEST_BODY_OPTS,
     CONF_REQUEST_BODY_PARAMETERS,
+    CONF_SERVER_HEADERS,
     CONF_TEMPERATURE,
     CONF_VLLM_CONFIG,
     SERVER_TYPE_DEEPSEEK,
@@ -447,3 +449,59 @@ class TestConversationSchemaTemperature:
         assert isinstance(marker, vol.Optional)
         # Optional with no forced default → unset stays unset.
         assert marker.default is vol.UNDEFINED
+
+
+class TestConversationSchemaCustomHeaders:
+    """The conversation subentry form must expose the header editor."""
+
+    @staticmethod
+    def _handler(hass) -> ConversationFlowHandler:
+        handler = ConversationFlowHandler()
+        handler.hass = hass
+        entry = MagicMock()
+        entry.data = {}
+        entry.runtime_data = MagicMock()
+        entry.runtime_data.models.list = AsyncMock(return_value=MagicMock(data=[]))
+        handler._get_entry = MagicMock(return_value=entry)
+        return handler
+
+    async def test_conversation_schema_has_custom_headers(self, hass) -> None:
+        """Reconfigure can reach the header editor, not just the create step."""
+        schema = await self._handler(hass).get_schema()
+
+        marker = _marker_for(schema, CONF_CUSTOM_HEADERS)
+        assert marker is not None, "Conversation schema must expose custom headers"
+        assert isinstance(marker, vol.Optional)
+
+    async def test_reconfigure_saves_normalized_headers(self, hass) -> None:
+        """Blank rows are dropped before the subentry is written."""
+        handler = self._handler(hass)
+        handler._get_reconfigure_subentry = MagicMock(return_value=MagicMock(data={}))
+        captured: dict = {}
+
+        def _capture(entry, subentry, data=None, **kwargs):
+            captured.update(data or {})
+            return "aborted"
+
+        handler.async_update_and_abort = _capture
+
+        with patch(
+            "custom_components.local_openai.config_flow.prepare_weaviate_class",
+            AsyncMock(),
+        ):
+            await handler.async_step_reconfigure(
+                {
+                    CONF_MODEL: "test-model",
+                    CONF_CUSTOM_HEADERS: {
+                        CONF_SERVER_HEADERS: [
+                            {"Key": "X-Session", "Value": "{{ conversation_id }}"},
+                            {"Key": "", "Value": "blank key"},
+                            {"Key": "X-Blank", "Value": "   "},
+                        ]
+                    },
+                }
+            )
+
+        assert captured[CONF_CUSTOM_HEADERS][CONF_SERVER_HEADERS] == [
+            {"Key": "X-Session", "Value": "{{ conversation_id }}"}
+        ]

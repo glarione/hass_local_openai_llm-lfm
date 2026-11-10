@@ -106,6 +106,11 @@ class AgentContext:
 
     iteration: int = 0
     conversation_id: str | None = None
+    device_id: str | None = None
+    area_id: str | None = None
+    language: str | None = None
+    agent_id: str | None = None
+    user_id: str | None = None
     extra_body: dict = field(default_factory=dict)
 
 
@@ -303,11 +308,53 @@ class LocalAiEntity(Entity):
                 context.conversation_id
             )
 
+    def _async_build_agent_context(
+        self, chat_log: conversation.ChatLog
+    ) -> AgentContext:
+        """
+        Collect the per-request template context from the chat log.
+
+        HA hands the agent an LLM context carrying the device that asked (an
+        Assist satellite), the language and the caller's user id. Per-device
+        session keys need those: a conversation id alone cannot tell two
+        satellites apart.
+        """
+        llm_context = getattr(chat_log.llm_api, "llm_context", None)
+        device_id = getattr(llm_context, "device_id", None)
+        ha_context = getattr(llm_context, "context", None)
+        return AgentContext(
+            conversation_id=chat_log.conversation_id,
+            device_id=device_id,
+            area_id=self._area_for_device(device_id),
+            language=getattr(llm_context, "language", None),
+            agent_id=getattr(llm_context, "agent_id", None),
+            user_id=getattr(ha_context, "user_id", None),
+        )
+
+    def _area_for_device(self, device_id: str | None) -> str | None:
+        """Area of the requesting device, so a header can key on a room."""
+        if not device_id:
+            return None
+        device = dr.async_get(self.hass).async_get(device_id)
+        return device.area_id if device else None
+
     async def _async_get_custom_headers(self, context: AgentContext) -> dict[str, str]:
         """Build custom headers dict with per-request Jinja2 template rendering."""
-        custom_headers_section = self.entry.data.get(CONF_CUSTOM_HEADERS, {}) or {}
+        custom_headers_section = (
+            self.options.get(CONF_CUSTOM_HEADERS)
+            or self.entry.data.get(CONF_CUSTOM_HEADERS, {})
+            or {}
+        )
         custom_headers_list = custom_headers_section.get(CONF_SERVER_HEADERS, []) or []
         custom_headers = {item["Key"]: item["Value"] for item in custom_headers_list}
+        template_vars = {
+            "conversation_id": context.conversation_id or "",
+            "device_id": context.device_id or "",
+            "area_id": context.area_id or "",
+            "language": context.language or "",
+            "agent_id": context.agent_id or "",
+            "user_id": context.user_id or "",
+        }
         result: dict[str, str] = {}
         for header_key, header_val in custom_headers.items():
             if isinstance(header_val, str) and "{" in header_val:
@@ -315,7 +362,7 @@ class LocalAiEntity(Entity):
                     rendered_val = template.Template(
                         header_val, self.hass
                     ).async_render(
-                        {"conversation_id": context.conversation_id},
+                        template_vars,
                         parse_result=False,
                     )
                     result[header_key] = str(rendered_val)
@@ -786,7 +833,7 @@ class LocalAiEntity(Entity):
             },
         }
 
-        context = AgentContext(conversation_id=chat_log.conversation_id)
+        context = self._async_build_agent_context(chat_log)
 
         # Merge custom HTTP headers (with per-request Jinja2 template rendering)
         custom_headers = await self._async_get_custom_headers(context)
