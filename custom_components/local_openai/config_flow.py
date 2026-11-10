@@ -289,6 +289,43 @@ def _validate_server_headers(headers: list[dict]) -> list[dict]:
     ]
 
 
+def _custom_headers_section_schema() -> vol.Schema:
+    """Key/Value editor for extra HTTP headers; values may be Jinja2 templates."""
+    return vol.Schema(
+        schema={
+            vol.Optional(
+                CONF_SERVER_HEADERS,
+                default=[],
+            ): ObjectSelector(
+                config={
+                    "multiple": True,
+                    "fields": {
+                        "Key": {
+                            "selector": {"text": None},
+                            "required": True,
+                        },
+                        "Value": {
+                            "selector": {"template": None},
+                            "required": True,
+                        },
+                    },
+                }
+            ),
+        }
+    )
+
+
+def _normalize_custom_headers(user_input: dict) -> None:
+    """Drop blank header rows and keep the section shape stable."""
+    if CONF_CUSTOM_HEADERS not in user_input:
+        return
+    section = user_input.get(CONF_CUSTOM_HEADERS) or {}
+    section[CONF_SERVER_HEADERS] = _validate_server_headers(
+        section.get(CONF_SERVER_HEADERS, []) or []
+    )
+    user_input[CONF_CUSTOM_HEADERS] = section
+
+
 CONVERSATION_SCHEMA_PROVIDERS = {
     SERVER_TYPE_DEEPSEEK: _deepseek_conversation_schema,
     SERVER_TYPE_GOOGLE_GEMINI: _google_gemini_conversation_schema,
@@ -433,28 +470,7 @@ class LocalAiConfigFlow(ConfigFlow, domain=DOMAIN):
                     options={"collapsed": True},
                 ),
                 vol.Optional(CONF_CUSTOM_HEADERS): section(
-                    schema=vol.Schema(
-                        schema={
-                            vol.Optional(
-                                CONF_SERVER_HEADERS,
-                                default=[],
-                            ): ObjectSelector(
-                                config={
-                                    "multiple": True,
-                                    "fields": {
-                                        "Key": {
-                                            "selector": {"text": None},
-                                            "required": True,
-                                        },
-                                        "Value": {
-                                            "selector": {"template": None},
-                                            "required": True,
-                                        },
-                                    },
-                                },
-                            ),
-                        },
-                    ),
+                    schema=_custom_headers_section_schema(),
                     options={"collapsed": True},
                 ),
             },
@@ -703,6 +719,10 @@ class ConversationFlowHandler(LocalAiSubentryFlowHandler):
                 options=SectionConfig(collapsed=True),
                 schema=_key_value_template_section(CONF_REQUEST_BODY_PARAMETERS),
             ),
+            vol.Optional(CONF_CUSTOM_HEADERS): section(
+                options=SectionConfig(collapsed=True),
+                schema=_custom_headers_section_schema(),
+            ),
         }
 
         server_type_schema_fields = _get_conversation_config_schema(server_type)
@@ -846,6 +866,7 @@ class ConversationFlowHandler(LocalAiSubentryFlowHandler):
                     LOGGER.exception(f"Unexpected exception: {err}")
                     errors["base"] = "cannot_connect_weaviate"
                 else:
+                    _normalize_custom_headers(user_input)
                     return self.async_update_and_abort(
                         self._get_entry(),
                         self._get_reconfigure_subentry(),
